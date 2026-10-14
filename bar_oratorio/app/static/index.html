@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#1F6B52">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<title>Bar Oratorio</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="static/icon-192.png">
+<link rel="apple-touch-icon" href="static/icon-192.png">
+<link rel="stylesheet" href="static/style.css?v=__VERSION__">
+</head>
+<body>
+<div id="root"><div class="loading">Caricamento…</div></div>
+<div id="scanner" role="dialog" aria-modal="true" aria-label="Scansione codice a barre">
+  <div class="box">
+    <div class="title" style="font-size:20px">Inquadra il codice a barre</div>
+    <div class="vwrap"><video id="scan-video" playsinline muted></video></div>
+    <div id="scan-msg" class="muted small">Avvio della fotocamera…</div>
+    <div class="row"><input id="scan-manual" class="input" inputmode="numeric" placeholder="oppure scrivi il codice" aria-label="Codice a barre"><button class="btn dark" id="scan-go">Cerca</button></div>
+    <button class="btn ghost" id="scan-close">Chiudi</button>
+  </div>
+</div>
+<script src="static/vendor/qrcode.min.js"></script>
+<script src="static/app.js?v=__VERSION__"></script>
+</body>
+</html>

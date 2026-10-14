@@ -1,0 +1,27 @@
+configuration:
+  admin_username:
+    name: Nome utente amministratore
+    description: Il nome con cui l'oratorio entra come amministratore.
+  admin_password:
+    name: Password amministratore (iniziale)
+    description: Almeno 8 caratteri. Serve al primo avvio; dopo si cambia dall'app. Per recuperarla attiva "Reimposta password".
+  admin_reset:
+    name: Reimposta password amministratore
+    description: Al prossimo avvio la password torna quella scritta qui sopra e l'admin viene disconnesso dai dispositivi. Poi rimettilo su spento.
+  tailscale_enabled:
+    name: Usa Tailscale
+    description: Crea il link dedicato https://<nome>.<tailnet>.ts.net
+  tailscale_authkey:
+    name: Chiave di accesso Tailscale
+    description: Auth key generata nella console di Tailscale (serve solo al primo collegamento). Se vuota, nel log compare un link per accedere.
+  tailscale_hostname:
+    name: Nome del dispositivo Tailscale
+    description: Diventa la prima parte del link, es. bar-oratorio.
+  funnel:
+    name: Link pubblico (Funnel)
+    description: Acceso = raggiungibile da qualsiasi telefono. Spento = solo dai dispositivi collegati alla tailnet.
+  session_days:
+    name: Durata delle sessioni (giorni)
+    description: Ogni uso la rinnova. I dispositivi restano collegati finché non si esce o l'admin li disconnette.
+network:
+  8080/tcp: Accesso diretto dalla rete locale (facoltativo, senza https)
