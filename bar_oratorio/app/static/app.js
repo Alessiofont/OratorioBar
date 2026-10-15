@@ -794,7 +794,7 @@ function prodEditor() {
     <div class="row" style="gap:12px">${thumb(p, 84)}<div style="display:flex;flex-direction:column;gap:6px" class="grow">
       <button class="btn sm ghost" ${A('photoSearch')}>${ic('search', 18)} Cerca foto online</button>
       <button class="btn sm ghost" ${A('photoUpload')}>${ic('camera', 18)} Scatta o carica foto</button></div></div>
-    ${S.photoResults === 'loading' ? '<div class="loading">Cerco su Open Food Facts…</div>' : Array.isArray(S.photoResults) ? (S.photoResults.length ? `<div class="grid3">${S.photoResults.map((r, i) => `<button class="photo-opt" ${A('photoPick', { i })} title="${esc(r.name)}"><img src="${esc(r.thumb_url)}" alt="${esc(r.name)}"></button>`).join('')}</div>` : '<div class="muted small">Nessuna foto trovata.</div>') : ''}`}
+    ${S.photoResults === 'loading' ? '<div class="loading">Cerco le foto…</div>' : Array.isArray(S.photoResults) ? (S.photoResults.length ? `<div class="grid3">${S.photoResults.map((r, i) => `<button class="photo-opt" ${A('photoPick', { i })} title="${esc(r.name)}"><img src="${esc(r.thumb_url)}" alt="${esc(r.name)}"></button>`).join('')}</div>` : '<div class="muted small">Nessuna foto trovata.</div>') : ''}`}
     <label class="field">Nome<input id="pe-name" class="input" value="${esc(f.name)}" data-bind="pe.name"></label>
     <label class="field">Categoria<select id="pe-cat" class="input" data-bind="pe.category_id"><option value="">—</option>${catOpts}</select></label>
     <div class="grid2"><label class="field">Scorta minima<input id="pe-min" class="input" inputmode="numeric" value="${esc(f.min_stock)}" data-bind="pe.min_stock"></label><label class="field">Scorta ideale fissa<input id="pe-ideal" class="input" inputmode="numeric" value="${esc(f.ideal_stock == null ? '' : f.ideal_stock)}" placeholder="facoltativa" data-bind="pe.ideal_stock"></label></div>
@@ -916,7 +916,7 @@ function impostazioniView() {
       <label class="field">Modifica dei propri movimenti<input class="input" disabled value="entro ${esc(s.edit_minutes)} minuti"></label>
     </div>
     ${chk('include_inventory_loss', "Gli ammanchi trovati con l'inventario contano come consumo")}
-    ${chk('photo_lookup', 'Cerca le foto dei prodotti su Open Food Facts')}
+    ${chk('photo_lookup', 'Cerca le foto dei prodotti online (Open Food Facts, UPCitemdb come riserva)')}
   </div>
   <div class="card" style="max-width:780px;gap:14px">
     <div class="row">${ic('bell', 24)}<div class="title grow">Notifiche (ntfy)</div></div>
