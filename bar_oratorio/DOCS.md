@@ -19,6 +19,12 @@ già presente). Nella console di Tailscale (https://login.tailscale.com/admin), 
 3. **Settings → Keys → Generate auth key**: lascia *Reusable* spento, attiva *Pre-approved* se
    l'approvazione dei dispositivi è attiva. Copia la chiave (`tskey-auth-…`).
 
+   La chiave **serve solo per il primo collegamento** e va usata entro la sua scadenza (al massimo
+   90 giorni, quindi generala quando sei pronto a installare). Dopo il primo avvio l'add-on resta
+   collegato con l'identità salvata in `/data/tailscale`: che la chiave scada non conta più e puoi
+   anche cancellarla dalle opzioni. In alternativa puoi non mettere nessuna chiave: nel registro
+   compare un link `login.tailscale.com/a/…` da aprire per approvare il dispositivo.
+
 ## 2. Configurazione dell'add-on
 
 | Opzione | Cosa mettere |
@@ -27,7 +33,7 @@ già presente). Nella console di Tailscale (https://login.tailscale.com/admin), 
 | Password amministratore | almeno 8 caratteri, serve al primo avvio |
 | Reimposta password | lascialo spento; accendilo solo per recuperare la password, poi rispegnilo |
 | Usa Tailscale | acceso |
-| Chiave di accesso Tailscale | la chiave del punto 1.3 (serve solo la prima volta) |
+| Chiave di accesso Tailscale | la chiave del punto 1.3 (serve solo la prima volta, poi si può svuotare) |
 | Nome del dispositivo Tailscale | `bar-oratorio` → diventa l'inizio del link |
 | Link pubblico (Funnel) | acceso per aprirlo da qualsiasi telefono |
 
@@ -59,11 +65,16 @@ usa il link Tailscale sui telefoni.
 
 ## Problemi comuni
 
+- **Errore SSL (`ERR_SSL_PROTOCOL_ERROR`) subito dopo il primo avvio**: il certificato HTTPS non era ancora pronto.
+  Aspetta nel registro la riga «Certificato HTTPS pronto» e riprova (meglio in una finestra in incognito, il browser
+  ricorda l'errore). Usa il link così com'è, senza `:8080` e con `https://`.
 - **Il link non si apre / errore TLS**: nel registro cerca le righe `[tailscale funnel]`. Se c'è un link
   per abilitare Funnel, aprilo e riavvia l'add-on. Se il problema compare dopo giorni di funzionamento,
   riavviare l'add-on azzera e ricrea la configurazione di Funnel.
-- **Nel registro c'è un link `login.tailscale.com/a/…`**: manca o è scaduta la chiave; aprilo e accedi,
-  oppure metti una nuova chiave nelle opzioni.
+- **Nel registro c'è un link `login.tailscale.com/a/…`**: l'add-on non è (più) collegato a Tailscale e la
+  chiave manca o è scaduta. Aprilo e accedi, oppure metti una nuova chiave nelle opzioni e riavvia.
+  Succede solo al primo avvio, se il dispositivo è stato rimosso dalla console Tailscale o se non hai
+  disattivato la scadenza (*Disable key expiry*).
 - **Password dell'amministratore dimenticata**: scrivi la nuova password nelle opzioni, accendi
   «Reimposta password», riavvia, poi rispegni l'opzione.
 - **Fotocamera che non parte**: deve essere il link `https`; consenti l'accesso alla fotocamera quando il

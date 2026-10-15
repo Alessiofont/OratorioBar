@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.0.1
+- Il certificato HTTPS viene preparato all'avvio, prima di mostrare il link: niente più errore SSL al primo accesso.
+- Se la chiave Tailscale è scaduta o non valida, il registro mostra il link di accesso invece di fermarsi.
+
 ## 1.0.0
 - Prima versione: carico a carrello in bozza (lotti = carrelli), scarichi FEFO, scadenze stimate,
   proposte da approvare, I miei movimenti (modifica entro 30 minuti), gestore lotti, Fare inventario,
