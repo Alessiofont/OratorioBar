@@ -484,8 +484,8 @@ def _can_edit_photo(conn, pid, user):
 
 
 @app.get("/api/photos/search")
-def photo_search(q: str, user=User):
-    return {"results": photos.search(q)}
+def photo_search(q: str, cat: str | None = None, user=User):
+    return {"results": photos.search(q, category=cat)}
 
 
 @app.post("/api/products/{pid}/photo")

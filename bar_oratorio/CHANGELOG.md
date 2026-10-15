@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.0.3
+- La ricerca per nome tiene conto del formato (lattina, brick, bottiglia, vetro, busta) letto dal nome e dalla categoria:
+  le foto di un formato diverso vengono scartate, quelle col formato confermato hanno la spunta verde e vanno in cima.
+  La categoria (Bibite, Acqua, Snack salati…) aiuta a scartare prodotti di altro tipo.
+- La foto automatica per nome viene assegnata solo se il formato corrisponde; altrimenti si sceglie a mano.
+- "Cerca foto" non blocca più l'app: si può aprire un altro prodotto e cercare di nuovo; la ricerca precedente viene annullata
+  e i suoi risultati non finiscono sul prodotto sbagliato. Pulsante "Annulla" mentre cerca.
+- Nuovo pulsante "Elimina foto" nella scheda prodotto.
+- Tempi di attesa più brevi verso le fonti delle foto.
+
 ## 1.0.2
 - Foto: la ricerca per nome usa Search-a-licious di Open Food Facts, con la vecchia ricerca OFF e UPCitemdb come riserve.
 - Foto per barcode: se Open Food Facts non ha il prodotto o non risponde, prova UPCitemdb.

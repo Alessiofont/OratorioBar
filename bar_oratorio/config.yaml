@@ -1,5 +1,5 @@
 name: Bar Oratorio
-version: "1.0.2"
+version: "1.0.3"
 slug: bar_oratorio
 description: Inventario del bar dell'oratorio, con link dedicato tramite Tailscale Funnel
 url: https://github.com/Alessiofont/OratorioBar

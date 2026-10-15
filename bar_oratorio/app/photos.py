@@ -32,7 +32,8 @@ OFF_SAL = "https://search.openfoodfacts.org/search"
 UPC = "https://api.upcitemdb.com/prod/trial"
 OFF_IMG_HOSTS = ("images.openfoodfacts.org", "static.openfoodfacts.org", "openfoodfacts-images.s3.eu-west-3.amazonaws.com")
 MAX_BYTES = 3 * 1024 * 1024
-OFF_FIELDS = ["code", "product_name", "product_name_it", "brands", "quantity", "image_front_url", "image_front_small_url"]
+OFF_FIELDS = ["code", "product_name", "product_name_it", "brands", "quantity", "image_front_url", "image_front_small_url",
+              "packaging", "packaging_tags", "packaging_shapes_tags", "categories_tags"]
 
 # ---------------------------------------------------------------- stato condiviso
 
@@ -67,7 +68,7 @@ def _gap(src: str) -> None:
         _last_call[src] = time.time()
 
 
-def _http_json(src: str, url: str, data: dict | None = None, timeout: int = 12) -> dict:
+def _http_json(src: str, url: str, data: dict | None = None, timeout: int = 8) -> dict:
     """GET (o POST JSON) con gestione uniforme degli errori: 429/5xx/timeout -> SourceDown."""
     _gap(src)
     headers = {"User-Agent": UA, "Accept": "application/json"}
@@ -117,6 +118,16 @@ def _txt(v) -> str:
     return ""
 
 
+def _txt_all(v) -> str:
+    if isinstance(v, str):
+        return v
+    if isinstance(v, list):
+        return " ".join(_txt_all(x) for x in v)
+    if isinstance(v, dict):
+        return " ".join(_txt_all(x) for x in v.values())
+    return ""
+
+
 def _name(prod: dict) -> str:
     return _txt(prod.get("product_name_it")) or _txt(prod.get("product_name"))
 
@@ -129,6 +140,7 @@ def _off_item(p: dict, source: str) -> dict | None:
         "code": p.get("code"), "name": _name(p), "brand": _txt(p.get("brands")).split(",")[0].strip(),
         "quantity": _txt(p.get("quantity")), "source": source,
         "image_url": _issue(img), "thumb_url": _issue(p.get("image_front_small_url") or img),
+        "_extra": " ".join(_txt_all(p.get(k)) for k in ("packaging", "packaging_tags", "packaging_shapes_tags", "categories_tags")).strip(),
     }
 
 
@@ -153,7 +165,8 @@ def _upc_item(it: dict) -> dict | None:
         return None
     return {"code": it.get("ean") or it.get("upc"), "name": (it.get("title") or "").strip(),
             "brand": (it.get("brand") or "").strip(), "quantity": (it.get("size") or "").strip(),
-            "source": "upcitemdb", "image_url": _issue(imgs[0]), "thumb_url": _issue(imgs[0])}
+            "source": "upcitemdb", "image_url": _issue(imgs[0]), "thumb_url": _issue(imgs[0]),
+            "_extra": " ".join(str(it.get(k) or "") for k in ("category", "description"))[:600].strip()}
 
 
 def _upc_barcode(code: str) -> dict | None:
@@ -207,7 +220,7 @@ def _off_sal(query: str, limit: int) -> list[dict]:
         if len(out) >= limit:
             return out
     # L'indice di ricerca a volte non riporta l'immagine: la chiediamo all'API prodotto (max 6).
-    for code in no_img[:6]:
+    for code in no_img[:3]:
         if len(out) >= limit or not _available("off_api"):
             break
         try:
@@ -224,7 +237,7 @@ def _off_legacy(query: str, limit: int) -> list[dict]:
         "search_terms": query, "search_simple": 1, "action": "process", "json": 1,
         "page_size": 30, "sort_by": "unique_scans_n", "fields": ",".join(OFF_FIELDS),
     })
-    d = _http_json("off_legacy", f"{OFF}/cgi/search.pl?{q}", timeout=15)
+    d = _http_json("off_legacy", f"{OFF}/cgi/search.pl?{q}", timeout=10)
     out = []
     for p in d.get("products") or []:
         item = _off_item(p, "off")
@@ -253,31 +266,174 @@ def _upc_search(query: str, limit: int) -> list[dict]:
 
 SEARCH_CHAIN = (("off_sal", _off_sal), ("off_legacy", _off_legacy), ("upc", _upc_search))
 
+# ---------------------------------------------------------------- formato e categoria
 
-def search(query: str, limit: int = 12) -> list[dict]:
-    """Ricerca per nome: prova le fonti in ordine e si ferma alla prima che dà risultati con foto."""
+# Formati di confezione: parole che li indicano (nome del prodotto, categoria, dati OFF/UPC)
+# e volumi tipici in ml, usati solo come indizio debole quando la confezione non è dichiarata.
+FORMATS = {
+    "lattina": {"words": ("lattina", "lattine", "latta", "can", "cans", "canette", "lata", "dosen",
+                          "metal", "aluminium", "aluminum", "alluminio"), "ml": (300, 355)},
+    "brick": {"words": ("brick", "brik", "bric", "tetra", "tetrapak", "tetra-pak", "cartone", "cartoncino", "carton",
+                        "cardboard", "combibloc", "brique"), "ml": (100, 250)},
+    "bottiglia": {"words": ("bottiglia", "bottigliette", "bottiglietta", "bottiglie", "bottle", "bottles", "pet",
+                            "bouteille", "flasche"), "ml": (330, 2000)},
+    "vetro": {"words": ("vetro", "glass", "verre"), "ml": None},
+    "busta": {"words": ("busta", "bustina", "sacchetto", "pacchetto", "bag", "sachet", "packet"), "ml": None},
+}
+# vetro è un materiale: non è in conflitto con bottiglia
+_COMPATIBLE = {("vetro", "bottiglia"), ("bottiglia", "vetro")}
+
+# Categorie dell'app -> parole che compaiono nelle categorie OFF (en:...) o nei testi UPC
+CATEGORY_HINTS = {
+    "bibite": ("soda", "sodas", "soft-drink", "carbonated", "beverages", "drink", "cola", "boissons"),
+    "acqua": ("water", "waters", "eaux", "mineral"),
+    "succhi": ("juice", "juices", "nectar", "tea", "teas", "iced", "beverages", "drink"),
+    "te": ("tea", "teas", "iced", "beverages"),
+    "snack dolci": ("snacks", "sweet", "biscuits", "chocolate", "candies", "confectioner", "bars", "wafer", "cakes"),
+    "snack salati": ("snacks", "salty", "chips", "crisps", "crackers", "appetizers", "popcorn", "pretzel"),
+    "patatine": ("chips", "crisps", "potato"),
+    "gelati": ("ice-cream", "ice-creams", "frozen", "sorbet", "glaces"),
+    "caffetteria": ("coffee", "coffees", "cocoa", "capsules", "sugar", "milk"),
+    "birra": ("beer", "beers", "bieres"),
+}
+_STOP = {"di", "da", "del", "della", "al", "alla", "e", "con", "gusto", "the", "-", "x", "pz", "pezzi"}
+
+
+def _norm(s: str) -> str:
+    import unicodedata
+    s = unicodedata.normalize("NFKD", s or "").encode("ascii", "ignore").decode().lower()
+    return re.sub(r"[^a-z0-9.,]+", " ", s).strip()
+
+
+def _tokens(s: str) -> set[str]:
+    return set(_norm(s).replace(",", " ").split())
+
+
+def _formats_in(text: str) -> set[str]:
+    toks = _tokens(text)
+    return {f for f, d in FORMATS.items() if toks & set(d["words"])}
+
+
+def _ml(text: str) -> float | None:
+    m = re.search(r"(\d+(?:[.,]\d+)?)\s*(ml|cl|dl|l|lt|litri?)\b", _norm(text))
+    if not m:
+        return None
+    v = float(m.group(1).replace(",", "."))
+    return v * {"ml": 1, "cl": 10, "dl": 100}.get(m.group(2), 1000)
+
+
+def _query_terms(name: str) -> str:
+    """Nome senza le parole di formato e i volumi: 'Estathe pesca - Brick' -> 'Estathe pesca'."""
+    words = [w for w in re.split(r"[\s\-/()]+", name or "") if w]
+    fmt_words = {w for d in FORMATS.values() for w in d["words"]}
+    keep = [w for w in words if _norm(w) not in fmt_words and not re.fullmatch(r"\d+([.,]\d+)?(ml|cl|l|lt|g|kg)?", _norm(w))]
+    return " ".join(keep) or (name or "")
+
+
+def _category_hints(category: str | None) -> set[str]:
+    c = _norm(category or "")
+    hints: set[str] = set()
+    toks = set(c.split())
+    for key, words in CATEGORY_HINTS.items():
+        if (" " in key and key in c) or (" " not in key and key in toks):
+            hints.update(words)
+    return hints
+
+
+def _score(item: dict, q_tokens: set[str], target: set[str], cat_hints: set[str], want_ml: float | None) -> tuple[float, bool, bool]:
+    """Restituisce (punteggio, formato confermato, formato in conflitto)."""
+    text = " ".join(str(item.get(k) or "") for k in ("name", "brand", "quantity", "_extra"))
+    toks = _tokens(text)
+    name_toks = _tokens(item.get("name") or "") | _tokens(item.get("brand") or "")
+    score = 2.0 * len(q_tokens & name_toks) - 2.5 * len(q_tokens - toks)   # ogni parola cercata che manca pesa
+    confirmed = conflict = False
+    ml = _ml(item.get("quantity") or "") or _ml(item.get("name") or "")
+    if target:
+        found = _formats_in(text)
+        if found & target:
+            score += 8
+            confirmed = True
+        elif found and not any((f, t) in _COMPATIBLE for f in found for t in target):
+            score -= 10
+            conflict = True
+        elif ml is not None:
+            for t in target:
+                rng = FORMATS[t]["ml"]
+                if rng and rng[0] <= ml <= rng[1]:
+                    score += 3
+                    confirmed = True
+                elif rng:
+                    score -= 3
+    if want_ml and ml:
+        score += 3 if abs(ml - want_ml) <= want_ml * 0.08 else -2
+    if cat_hints and item.get("_extra"):
+        score += 2 if toks & cat_hints else -3   # categoria dichiarata ma di altro tipo (es. yogurt per un tè)
+    return score, confirmed, conflict
+
+
+def _rank(items: list[dict], query: str, target: set[str], cat_hints: set[str], want_ml: float | None) -> list[dict]:
+    q_tokens = _tokens(query) - _STOP
+    seen, ranked = set(), []
+    for it in items:
+        if it["image_url"] in seen:
+            continue
+        seen.add(it["image_url"])
+        sc, ok, bad = _score(it, q_tokens, target, cat_hints, want_ml)
+        ranked.append((sc, ok, bad, it))
+    ranked.sort(key=lambda r: -r[0])
+    best = ranked[0][0] if ranked else 0
+    out = []
+    for sc, ok, bad, it in ranked:
+        if sc <= 0 < best:   # c'è qualcosa di pertinente: nascondo i risultati fuori tema
+            continue
+        if bad:            # formato diverso dichiarato (es. lattina quando cerchi il brick): scartato
+            continue
+        it = {k: v for k, v in it.items() if not k.startswith("_")}
+        it["format_ok"] = ok if target else None
+        it["score"] = round(sc, 1)
+        out.append(it)
+    return out
+
+
+def search(query: str, limit: int = 12, category: str | None = None) -> list[dict]:
+    """Ricerca per nome che tiene conto del formato (lattina, brick, bottiglia…) e della categoria.
+
+    Il formato si legge dal nome del prodotto e dalla categoria; le parole di formato vengono tolte
+    dalla ricerca testuale (le banche dati raramente le hanno nel nome) e usate per ordinare e
+    filtrare i risultati. Le fonti si interrogano in ordine finché non c'è almeno una foto con il
+    formato confermato; se nessuna lo conferma restano le foto senza formato dichiarato.
+    """
     query = re.sub(r"\s+", " ", (query or "").strip())
     if len(query) < 2:
         return []
-    key = query.lower()
+    target = _formats_in(query) | _formats_in(category or "")
+    want_ml = _ml(query)
+    terms = _query_terms(query)
+    hints = _category_hints(category)
+    key = f"{terms.lower()}|{','.join(sorted(target))}|{_norm(category or '')}|{want_ml}"
     hit = _cache.get(key)
-    if hit and time.time() - hit[0] < _CACHE_TTL and len(hit[1]) >= min(limit, 1):
+    if hit and time.time() - hit[0] < _CACHE_TTL:
         return hit[1][:limit]
+    pool: list[dict] = []
     for src, fn in SEARCH_CHAIN:
         if not _available(src):
             continue
         try:
-            res = fn(query, limit)
+            pool += fn(terms, 30)
         except SourceDown:
             continue
         except Exception as e:
-            log.info("ricerca %r su %s: %s", query, src, e)
+            log.info("ricerca %r su %s: %s", terms, src, e)
             continue
-        if res:
-            _cache[key] = (time.time(), res)
-            return res[:limit]
-    log.info("ricerca %r: nessuna fonte ha restituito foto", query)
-    return []
+        ranked = _rank(pool, terms, target, hints, want_ml)
+        if ranked and (not target or any(r["format_ok"] for r in ranked)):
+            break
+    ranked = _rank(pool, terms, target, hints, want_ml)
+    if ranked:
+        _cache[key] = (time.time(), ranked)
+    else:
+        log.info("ricerca %r (%s): nessuna foto adatta", terms, "/".join(sorted(target)) or "formato libero")
+    return ranked[:limit]
 
 
 def sources_status() -> dict:
@@ -364,7 +520,8 @@ def save_upload(pid: int, data_url: str) -> str:
 def auto_photo(pid: int) -> bool:
     """Prima foto automatica: per barcode (affidabile) o, se manca, primo risultato per nome."""
     with db() as conn:
-        p = conn.execute("SELECT name, photo FROM products WHERE id=?", (pid,)).fetchone()
+        p = conn.execute("SELECT p.name, p.photo, c.name AS category FROM products p "
+                         "LEFT JOIN categories c ON c.id = p.category_id WHERE p.id=?", (pid,)).fetchone()
         if p is None or p["photo"]:
             return False
         codes = [r["code"] for r in conn.execute("SELECT code FROM barcodes WHERE product_id=?", (pid,))]
@@ -379,7 +536,9 @@ def auto_photo(pid: int) -> bool:
                 return True
             except Exception as e:
                 log.info("foto barcode %s: %s", c, e)
-    for r in search(p["name"], limit=3):
+    for r in search(p["name"], limit=3, category=p["category"]):
+        if r.get("format_ok") is False or r.get("score", 0) <= 0:
+            continue   # in automatico solo foto che corrispondono davvero; le altre si scelgono a mano
         try:
             download_to_product(pid, r["image_url"], f"{r.get('source', 'off')}-nome")
             return True

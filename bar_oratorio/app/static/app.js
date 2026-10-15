@@ -23,11 +23,11 @@ function debounce(fn, ms) { let t; return (...a) => { clearTimeout(t); t = setTi
 
 /* ---------------- API ---------------- */
 class ApiError extends Error { constructor(status, detail) { super(typeof detail === 'string' ? detail : (detail && detail.message) || 'Errore'); this.status = status; this.detail = detail; } }
-async function api(method, path, body) {
-  const opt = { method, headers: { 'X-Bar': '1' }, credentials: 'same-origin' };
+async function api(method, path, body, signal) {
+  const opt = { method, headers: { 'X-Bar': '1' }, credentials: 'same-origin', signal };
   if (body !== undefined) { opt.headers['Content-Type'] = 'application/json'; opt.body = JSON.stringify(body); }
   let r;
-  try { r = await fetch('api/' + path, opt); } catch (e) { throw new ApiError(0, 'Connessione assente: riprova tra poco'); }
+  try { r = await fetch('api/' + path, opt); } catch (e) { if (e && e.name === 'AbortError') throw e; throw new ApiError(0, 'Connessione assente: riprova tra poco'); }
   let data = null;
   try { data = await r.json(); } catch (e) { data = null; }
   if (r.status === 401 && path !== 'login') { S.user = null; S.boot = null; render(); throw new ApiError(401, 'Accesso scaduto: rientra'); }
@@ -790,11 +790,12 @@ function prodEditor() {
   const proj = f.projection && f.projection[0];
   return `
     <div class="row"><div class="title grow">${isNew ? 'Nuovo prodotto' : 'Scheda prodotto'}</div>${pc() ? `<button class="iconbtn" ${A('closeProd')} aria-label="Chiudi">${ic('x', 20)}</button>` : ''}</div>
-    ${isNew ? '<div class="muted small">La foto si cerca da sola su Open Food Facts dopo il salvataggio (prima per barcode, poi per nome).</div>' : `
+    ${isNew ? '<div class="muted small">La foto si cerca da sola dopo il salvataggio: prima per barcode, poi per nome e formato (lattina, brick, bottiglia…). Se il formato non è sicuro, la scegli tu.</div>' : `
     <div class="row" style="gap:12px">${thumb(p, 84)}<div style="display:flex;flex-direction:column;gap:6px" class="grow">
       <button class="btn sm ghost" ${A('photoSearch')}>${ic('search', 18)} Cerca foto online</button>
-      <button class="btn sm ghost" ${A('photoUpload')}>${ic('camera', 18)} Scatta o carica foto</button></div></div>
-    ${S.photoResults === 'loading' ? '<div class="loading">Cerco le foto…</div>' : Array.isArray(S.photoResults) ? (S.photoResults.length ? `<div class="grid3">${S.photoResults.map((r, i) => `<button class="photo-opt" ${A('photoPick', { i })} title="${esc(r.name)}"><img src="${esc(r.thumb_url)}" alt="${esc(r.name)}"></button>`).join('')}</div>` : '<div class="muted small">Nessuna foto trovata.</div>') : ''}`}
+      <button class="btn sm ghost" ${A('photoUpload')}>${ic('camera', 18)} Scatta o carica foto</button>
+      ${p.photo ? `<button class="btn sm danger" ${A('photoDelete')}>${ic('trash', 18)} Elimina foto</button>` : ''}</div></div>
+    ${S.photoResults === 'loading' ? `<div class="row" style="gap:10px"><div class="loading grow">Cerco le foto…</div><button class="btn sm ghost" ${A('photoCancel')}>Annulla</button></div>` : Array.isArray(S.photoResults) ? (S.photoResults.length ? `<div class="grid3">${S.photoResults.map((r, i) => `<button class="photo-opt" ${A('photoPick', { i })} title="${esc([r.name, r.quantity].filter(Boolean).join(' · '))}"><img src="${esc(r.thumb_url)}" alt="${esc(r.name)}">${r.format_ok ? '<span class="photo-ok" aria-label="Formato corrispondente">✓</span>' : ''}</button>`).join('')}</div>` : '<div class="muted small">Nessuna foto trovata.</div>') : ''}`}
     <label class="field">Nome<input id="pe-name" class="input" value="${esc(f.name)}" data-bind="pe.name"></label>
     <label class="field">Categoria<select id="pe-cat" class="input" data-bind="pe.category_id"><option value="">—</option>${catOpts}</select></label>
     <div class="grid2"><label class="field">Scorta minima<input id="pe-min" class="input" inputmode="numeric" value="${esc(f.min_stock)}" data-bind="pe.min_stock"></label><label class="field">Scorta ideale fissa<input id="pe-ideal" class="input" inputmode="numeric" value="${esc(f.ideal_stock == null ? '' : f.ideal_stock)}" placeholder="facoltativa" data-bind="pe.ideal_stock"></label></div>
@@ -1261,7 +1262,7 @@ async function go(s) {
   S.screen = s; S.sheet = null; S.q = ''; S.filter = 'tutti';
   if (s !== 'lotti') { S.selCart = null; S.selLine = null; }
   if (s === 'log') { S.logCat = S.logCat || ''; }
-  if (s === 'anagrafica') { S.selProd = null; S.pe = null; S.photoResults = null; }
+  if (s === 'anagrafica') { photoAbort(); S.selProd = null; S.pe = null; S.photoResults = null; }
   render();
   await load(s);
 }
@@ -1463,7 +1464,7 @@ const ACT = {
   /* anagrafica */
   prodTab(d) { S.prodTab = d.t; },
   async openProd(d) {
-    S.photoResults = null;
+    photoAbort(); S.photoResults = null;
     if (d.id === 'new') S.pe = { id: 'new', name: '', category_id: '', min_stock: 0, ideal_stock: '', codes: [] };
     else {
       const p = P(d.id);
@@ -1473,7 +1474,7 @@ const ACT = {
     S.selProd = S.pe.id;
     if (!pc()) S.sheet = 'prod';
   },
-  closeProd() { S.selProd = null; S.pe = null; S.photoResults = null; },
+  closeProd() { photoAbort(); S.selProd = null; S.pe = null; S.photoResults = null; },
   peScanCode() { S.pickFor = 'peCode'; Scanner.open(handleCode); },
   async peDelCode(d) {
     const f = S.pe;
@@ -1494,8 +1495,24 @@ const ACT = {
     if (!confirm('Eliminare questo prodotto? Se ha già avuto movimenti viene archiviato.')) return;
     try { const r = await del('products/' + d.id); toast(r.archived ? 'Prodotto archiviato' : 'Prodotto eliminato'); S.selProd = null; S.pe = null; S.sheet = null; await refreshBoot(); } catch (e) { fail(e); }
   },
-  async photoSearch() { S.photoResults = 'loading'; render(); try { const r = await get('photos/search?q=' + enc(S.pe.name)); S.photoResults = r.results; } catch (e) { S.photoResults = []; fail(e); } },
-  async photoPick(d) { const r = S.photoResults[Number(d.i)]; try { await post('products/' + S.pe.id + '/photo', { url: r.image_url }); S.photoResults = null; toast('Foto aggiornata'); await refreshBoot(); } catch (e) { fail(e); } },
+  photoSearch() {
+    // Non blocca il resto dell'app (niente flag busy) e i risultati valgono solo per il prodotto che li ha chiesti.
+    photoAbort();
+    const pid = S.pe && S.pe.id; if (!pid || pid === 'new') return;
+    const ctl = new AbortController(); PHOTO.ctl = ctl; PHOTO.pid = pid;
+    S.photoResults = 'loading';
+    const c = categories().find((x) => String(x.id) === String(S.pe.category_id));
+    api('GET', 'photos/search?q=' + enc(S.pe.name) + (c ? '&cat=' + enc(c.name) : ''), undefined, ctl.signal)
+      .then((r) => { if (PHOTO.ctl === ctl && S.pe && S.pe.id === pid) S.photoResults = r.results; })
+      .catch((e) => { if (e && e.name === 'AbortError') return; if (PHOTO.ctl === ctl && S.pe && S.pe.id === pid) { S.photoResults = []; fail(e); } })
+      .finally(() => { if (PHOTO.ctl === ctl) { PHOTO.ctl = null; render(); } });
+  },
+  photoCancel() { photoAbort(); S.photoResults = null; },
+  async photoDelete() {
+    if (!confirm('Eliminare la foto di questo prodotto?')) return;
+    try { await del('products/' + S.pe.id + '/photo'); photoAbort(); S.photoResults = null; toast('Foto eliminata'); await refreshBoot(); } catch (e) { fail(e); }
+  },
+  async photoPick(d) { const r = Array.isArray(S.photoResults) && S.photoResults[Number(d.i)]; if (!r) return; photoAbort(); try { await post('products/' + S.pe.id + '/photo', { url: r.image_url }); S.photoResults = null; toast('Foto aggiornata'); await refreshBoot(); } catch (e) { fail(e); } },
   async photoUpload() { const data = await pickPhoto(); if (!data) return; try { await post('products/' + S.pe.id + '/photo', { data_url: data }); toast('Foto aggiornata'); await refreshBoot(); } catch (e) { fail(e); } render(); },
   async fillPhotos() { try { const r = await post('photos/fill-missing'); toast('Cerco le foto di ' + r.queued + ' prodotti: ci vuole qualche minuto'); } catch (e) { fail(e); } },
   async doImport() { try { const r = await post('import/products', { csv: S.importCsv || '' }); S.sheet = null; S.importCsv = ''; toast(r.created + ' prodotti creati, ' + r.skipped + ' già presenti' + (r.errors.length ? ', ' + r.errors.length + ' errori' : '')); await refreshBoot(); } catch (e) { fail(e); } },
@@ -1572,6 +1589,10 @@ async function flushInv() {
     if (l) { l.counted = body.counted === '' ? null : body.counted; if (body.target) l.target = body.target; }
   }
 }
+
+/* ---------------- ricerca foto in corso (una alla volta, annullabile) ---------------- */
+const PHOTO = { ctl: null, pid: null };
+function photoAbort() { if (PHOTO.ctl) { try { PHOTO.ctl.abort(); } catch (e) { /* già chiusa */ } PHOTO.ctl = null; } }
 
 /* ---------------- eventi ---------------- */
 let busy = false;
